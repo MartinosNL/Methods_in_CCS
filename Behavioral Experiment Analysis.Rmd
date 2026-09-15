@@ -1,0 +1,28 @@
+---
+title: "Behavioral Experiment R Script"
+author: "Patrick Jans"
+date: "2026-09-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Loading the files, combining them into one dataset
+datSubject1 <- read.csv("subject-1.csv")
+datSubject2 <- read.csv("subject-2.csv")
+datSubject3 <- read.csv("subject-3.csv")
+#datSubject4 <- read.csv("subject-4.csv")
+#datSubject5 <- read.csv("subject-5.csv")
+#datSubject6 <- read.csv("subject-6.csv")
+
+
+datSubject1$ID <- "Subject1"
+datSubject1 <- datSubject1[,c(49, 1:48)]
+```
+
+```{r}
+
+```
