@@ -11,18 +11,43 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 # Loading the files, combining them into one dataset
-datSubject1 <- read.csv("subject-1.csv")
-datSubject2 <- read.csv("subject-2.csv")
-datSubject3 <- read.csv("subject-3.csv")
-#datSubject4 <- read.csv("subject-4.csv")
-#datSubject5 <- read.csv("subject-5.csv")
-#datSubject6 <- read.csv("subject-6.csv")
+all_data <- data.frame()
 
+for (i in 1:6) {
+  dat <- read.csv(paste0("subject-", i, ".csv"))
+  dat$ID <- i
+  all_data <- rbind(all_data, dat)
+}
 
-datSubject1$ID <- "Subject1"
-datSubject1 <- datSubject1[,c(49, 1:48)]
+all_data <- all_data[, c(49, 1:48)]
+practice_data <- all_data[all_data$Practice == "Yes",]
+dat <- all_data[all_data$Practice == "No",]
+
+nrow(dat[dat$RT < 20,]) # Check if there are any RT < 20, if so remove them
 ```
 
 ```{r}
-
+AccBlock4 <- aggregate(accuracy ~ ID, data = dat[dat$block ==4,], FUN = mean)
+AccBlock4
+sd(AccBlock4$accuracy)
 ```
+
+```{r, fig.width=15, fig.height=10}
+par(mfrow=c(2,3))
+for (i in 1:6){
+  plot(dat[dat$ID == i,]$overall_accuracy, ylim = c(0.8, 1), type = "l", xlab = "Trial",
+     ylab = "Accuracy")
+}
+```
+
+```{r, fig.width=15, fig.height=10}
+par(mfrow=c(2,3))
+for (i in 1:6){
+  plot(dat[dat$ID == i,]$running_accuracy, ylim = c(0.65, 1), type = "l", xlab = "Trial",
+     ylab = "Accuracy")
+}
+```
+
+
+
+
