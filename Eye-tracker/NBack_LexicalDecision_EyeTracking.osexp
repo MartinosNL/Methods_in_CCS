@@ -1,13 +1,13 @@
 ---
 API: 3
-OpenSesame: 4.1.19
+OpenSesame: 4.1.9
 Platform: posix
 ---
 set width 1920
 set uniform_coordinates yes
 set title NBackLexicalDecision_EyeTracking
 set subject_parity even
-set subject_nr 1
+set subject_nr 0
 set start experiment
 set sound_sample_size -16
 set sound_freq 48000
@@ -26,6 +26,7 @@ set font_size 22
 set font_italic no
 set font_family mono
 set font_bold no
+set experiment_path "/Users/patrick/Documents/CCS/Methods for CCS/Methods_in_CCS/Eye-tracker"
 set disable_garbage_collection yes
 set description "N-back lexical decision task with pupillometry"
 set coordinates uniform
@@ -33,7 +34,67 @@ set compensation 0
 set color_backend legacy
 set clock_backend legacy
 set canvas_backend xpyriment
-set background #808080
+set background "#808080"
+
+define sketchpad block_fixation
+	set duration 3000
+	set description "Displays stimuli"
+	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
+
+define inline_script block_run
+	set description "Runs all probes of the current block"
+	___run__
+	run_block(var.block)
+	__end__
+	set _prepare ""
+
+define sequence block_sequence
+	set flush_keyboard yes
+	set description "One experimental block"
+	run new_block always
+	run block_start always
+	run et_calibration always
+	run block_fixation always
+	run block_run always
+	run et_end_block always
+
+define sketchpad block_start
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Nu begint blok [block] van 3.<br /><br />Kijk naar het midden van het scherm.<br />'n' = echt woord, 'm' = nep-woord (rechterhand).<br /><br />Druk op een toets om te beginnen." x=0 y=0 z_index=0
+
+define loop blocks
+	set source table
+	set repeat 3
+	set order sequential
+	set description "Runs the experimental blocks (repeat = number of blocks, keep equal to N_BLOCKS)"
+	set cycles 1
+	set continuous no
+	set break_if_on_first yes
+	set break_if False
+	setcycle 0 phase experimental
+	run block_sequence
+
+define sketchpad end_of_experiment
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Dat was alles!<br /><br />Hartelijk dank voor het meedoen!" x=0 y=0 z_index=0
+
+define inline_script et_calibration
+	set description "Executes Python code"
+	___run__
+	# EYE TRACKER HOOK: calibration / drift correction + start recording go here (e.g. a pygaze_calibrate / pygaze_start_recording item)
+	pass
+	__end__
+	set _prepare ""
+
+define inline_script et_end_block
+	set description "Executes Python code"
+	___run__
+	# EYE TRACKER HOOK: stop recording for this block goes here
+	pass
+	__end__
+	set _prepare ""
 
 define sequence experiment
 	set flush_keyboard yes
@@ -45,28 +106,6 @@ define sequence experiment
 	run practice_end always
 	run blocks always
 	run end_of_experiment always
-
-define loop blocks
-	set source table
-	set repeat 3
-	set order sequential
-	set description "Runs the experimental blocks (repeat = number of blocks, keep equal to N_BLOCKS)"
-	set cycles 1
-	set continuous no
-	set break_if_on_first yes
-	set break_if never
-	setcycle 0 phase experimental
-	run block_sequence
-
-define sequence block_sequence
-	set flush_keyboard yes
-	set description "One experimental block"
-	run new_block always
-	run block_start always
-	run et_calibration always
-	run block_fixation always
-	run block_run always
-	run et_end_block always
 
 define inline_script generalpreps
 	set description "Settings, stimulus handling and trial engine (see SETTINGS at the top)"
@@ -85,7 +124,7 @@ define inline_script generalpreps
 	    STREAM_MAX = 8,            # longest stream
 	    MAX_RUN = 3,               # max. consecutive words (or non-words) in one stream
 	    N_BACKS = [2, 3, 4],       # n-back levels in the experimental blocks
-	    N_REPS = 2,                # probes per n-back x difficulty cell (2 -> 12 probes in total)
+	    N_REPS = 2,                # probes per n-back x difficulty cell PER BLOCK (2 -> 12 probes per block)
 	    N_BLOCKS = 3,              # must match the number of cycles ('repeat') of the loop 'blocks'
 	    PROBE_MS = 5000,           # response window for the probe question
 	    INTERSTREAM_FIX_MS = 1000, # fixation dot between a probe and the next stream (0 = none)
@@ -157,20 +196,22 @@ define inline_script generalpreps
 	
 	
 	def make_experimental_plan():
-	    probes = []
-	    for n in CFG['N_BACKS']:
-	        for d in ('easy', 'hard'):
-	            offset = random.randint(0, 1)
-	            for r in range(CFG['N_REPS']):
-	                lex = 'word' if (r + offset) % 2 == 0 else 'nonword'
-	                probes.append(dict(n_back=n, difficulty=d, lexical=lex))
-	    nb = CFG['N_BLOCKS']
-	    plan = None
-	    for _ in range(5000):
-	        random.shuffle(probes)
-	        plan = [probes[i::nb] for i in range(nb)]
-	        if all(_order_ok(b) for b in plan):
-	            break
+	    # Every block contains the full design: n-back x difficulty x N_REPS probes,
+	    # with N_REPS = 2 giving one word and one non-word target per cell.
+	    plan = []
+	    for block in range(CFG['N_BLOCKS']):
+	        probes = []
+	        for n in CFG['N_BACKS']:
+	            for d in ('easy', 'hard'):
+	                offset = random.randint(0, 1)
+	                for r in range(CFG['N_REPS']):
+	                    lex = 'word' if (r + offset) % 2 == 0 else 'nonword'
+	                    probes.append(dict(n_back=n, difficulty=d, lexical=lex))
+	        for _ in range(5000):
+	            random.shuffle(probes)
+	            if _order_ok(probes):
+	                break
+	        plan.append(probes)
 	    return plan
 	
 	
@@ -373,71 +414,6 @@ define inline_script generalpreps
 	__end__
 	set _prepare ""
 
-define inline_script practice_run
-	set description "Runs the practice probes"
-	___run__
-	run_practice()
-	__end__
-	set _prepare ""
-
-define inline_script block_run
-	set description "Runs all probes of the current block"
-	___run__
-	run_block(var.block)
-	__end__
-	set _prepare ""
-
-define inline_script new_block
-	set description "Executes Python code"
-	set _run ""
-	set _prepare "var.block = var.block + 1"
-
-define inline_script et_calibration
-	set description "Executes Python code"
-	___run__
-	# EYE TRACKER HOOK: calibration / drift correction + start recording go here (e.g. a pygaze_calibrate / pygaze_start_recording item)
-	pass
-	__end__
-	set _prepare ""
-
-define inline_script et_end_block
-	set description "Executes Python code"
-	___run__
-	# EYE TRACKER HOOK: stop recording for this block goes here
-	pass
-	__end__
-	set _prepare ""
-
-define sketchpad main_instructions
-	set duration keypress
-	set description "Displays stimuli"
-	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Welkom!<br /><br />In dit experiment zie je steeds een reeks woorden, een voor een in het midden van het scherm.<br />Elk woord blijft 3 seconden staan. Sommige woorden zijn echte Nederlandse woorden (stoel),<br />andere zijn nep-woorden (estol).<br /><br />Na een aantal woorden krijg je een vraag over een van de laatste woorden, bijvoorbeeld:<br />'Was het voorlaatste woord een echt woord of een nep-woord?'<br /><br />Was het woord echt, druk dan op de 'n'. Was het een nep-woord, druk dan op de 'm'.<br />Je hebt 5 seconden om te antwoorden. Gebruik voor beide toetsen je rechterhand.<br /><br />Probeer zo min mogelijk fouten te maken. Kijk de hele tijd naar het midden van het scherm<br />en probeer je hoofd stil te houden.<br /><br />Druk op een toets om verder te gaan." x=0 y=0 z_index=0
-
-define sketchpad practice_intro
-	set duration keypress
-	set description "Displays stimuli"
-	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Eerst een korte oefensessie, met feedback.<br /><br />De vragen gaan over het voorlaatste woord (het woord voor het laatste),<br />het op twee na laatste woord en het op drie na laatste woord.<br />Ze worden stap voor stap moeilijker.<br /><br />'n' = echt woord, 'm' = nep-woord.<br /><br />Druk op een toets om te beginnen." x=0 y=0 z_index=0
-
-define sketchpad practice_end
-	set duration keypress
-	set description "Displays stimuli"
-	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Dat was de oefensessie.<br /><br />In het echte experiment krijg je geen feedback meer<br />en komen de drie soorten vragen door elkaar voor.<br /><br />Druk op een toets om door te gaan." x=0 y=0 z_index=0
-
-define sketchpad block_start
-	set duration keypress
-	set description "Displays stimuli"
-	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Nu begint blok [block] van 3.<br /><br />Kijk naar het midden van het scherm.<br />'n' = echt woord, 'm' = nep-woord (rechterhand).<br /><br />Druk op een toets om te beginnen." x=0 y=0 z_index=0
-
-define sketchpad block_fixation
-	set duration 3000
-	set description "Displays stimuli"
-	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
-
-define sketchpad end_of_experiment
-	set duration keypress
-	set description "Displays stimuli"
-	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Dat was alles!<br /><br />Hartelijk dank voor het meedoen!" x=0 y=0 z_index=0
-
 define logger logger
 	set description "Logs experimental data"
 	set auto_log no
@@ -463,4 +439,31 @@ define logger logger
 	log rt_ms
 	log stream_words
 	log stim_file
+
+define sketchpad main_instructions
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Welkom!<br /><br />In dit experiment zie je steeds een reeks woorden, een voor een in het midden van het scherm.<br />Elk woord blijft 3 seconden staan. Sommige woorden zijn echte Nederlandse woorden (stoel),<br />andere zijn nep-woorden (estol).<br /><br />Na een aantal woorden krijg je een vraag over een van de laatste woorden, bijvoorbeeld:<br />'Was het voorlaatste woord een echt woord of een nep-woord?'<br /><br />Was het woord echt, druk dan op de 'n'. Was het een nep-woord, druk dan op de 'm'.<br />Je hebt 5 seconden om te antwoorden. Gebruik voor beide toetsen je rechterhand.<br />Druk op een toets om verder te gaan." x=0 y=0 z_index=0
+
+define inline_script new_block
+	set description "Executes Python code"
+	set _run ""
+	set _prepare "var.block = var.block + 1"
+
+define sketchpad practice_end
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Dat was de oefensessie.<br /><br />In het echte experiment krijg je geen feedback meer<br />en komen de drie soorten vragen door elkaar voor.<br /><br />Druk op een toets om door te gaan." x=0 y=0 z_index=0
+
+define sketchpad practice_intro
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Eerst een korte oefensessie, met feedback.<br /><br />De vragen gaan over het voorlaatste woord (het woord voor het laatste),<br />het op twee na laatste woord en het op drie na laatste woord.<br />Ze worden stap voor stap moeilijker.<br /><br />'n' = echt woord, 'm' = nep-woord.<br /><br />Druk op een toets om te beginnen." x=0 y=0 z_index=0
+
+define inline_script practice_run
+	set description "Runs the practice probes"
+	___run__
+	run_practice()
+	__end__
+	set _prepare ""
 
