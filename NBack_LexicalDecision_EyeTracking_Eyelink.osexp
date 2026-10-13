@@ -1,0 +1,538 @@
+---
+API: 3
+OpenSesame: 4.1.19
+Platform: posix
+---
+set width 1920
+set uniform_coordinates yes
+set title NBackLexicalDecision_EyeTracking
+set subject_parity even
+set subject_nr 1
+set start experiment
+set sound_sample_size -16
+set sound_freq 48000
+set sound_channels 2
+set sound_buf_size 1024
+set sampler_backend legacy
+set round_decimals 2
+set mouse_backend legacy
+set keyboard_backend legacy
+set height 1080
+set fullscreen no
+set form_clicks no
+set foreground black
+set font_underline no
+set font_size 22
+set font_italic no
+set font_family mono
+set font_bold no
+set disable_garbage_collection yes
+set description "N-back lexical decision task with pupillometry (EyeLink)"
+set coordinates uniform
+set compensation 0
+set color_backend legacy
+set clock_backend legacy
+set canvas_backend legacy
+set background #808080
+
+define sequence experiment
+	set flush_keyboard yes
+	set description "Runs a number of items in sequence"
+	run generalpreps always
+	run main_instructions always
+	run pygaze_init always
+	run set_file_name always
+	run practice_intro always
+	run start_recording_practice always
+	run et_msg_practice always
+	run practice_run always
+	run stop_recording_practice always
+	run practice_end always
+	run blocks always
+	run end_of_experiment always
+	run stop_recording always
+
+define loop blocks
+	set source table
+	set repeat 3
+	set order sequential
+	set description "Runs the experimental blocks (repeat = number of blocks, keep equal to N_BLOCKS)"
+	set cycles 1
+	set continuous no
+	set break_if_on_first yes
+	set break_if never
+	setcycle 0 phase experimental
+	run block_sequence
+
+define sequence block_sequence
+	set flush_keyboard yes
+	set description "One experimental block"
+	run new_block always
+	run block_start always
+	run et_calibration always
+	run start_recording_block always
+	run et_msg_fixation always
+	run block_fixation always
+	run block_run always
+	run stop_recording_block always
+
+define inline_script generalpreps
+	set description "Settings, stimulus handling and trial engine (see SETTINGS at the top)"
+	___run__
+	import random, csv, io, os
+	from openexp.canvas import Canvas
+	from openexp.keyboard import Keyboard
+	
+	# =====================================================================
+	# SETTINGS - change values here
+	# =====================================================================
+	CFG = dict(
+	    WORD_MS = 3000,            # every word in the stream stays on screen this long
+	    WORD_ISI_MS = 0,           # optional fixation dot between words (0 = none)
+	    STREAM_MIN = 5,            # shortest stream (words before a probe)
+	    STREAM_MAX = 8,            # longest stream
+	    MAX_RUN = 3,               # max. consecutive words (or non-words) in one stream
+	    N_BACKS = [2, 3, 4],       # n-back levels in the experimental blocks
+	    N_REPS = 2,                # probes per n-back x difficulty cell PER BLOCK (2 -> 12 probes per block)
+	    N_BLOCKS = 3,              # must match the number of cycles ('repeat') of the loop 'blocks'
+	    PROBE_MS = 5000,           # response window for the probe question
+	    INTERSTREAM_FIX_MS = 1000, # fixation dot between a probe and the next stream (0 = none)
+	    FEEDBACK_MS = 1000,        # feedback duration (practice only)
+	    PRACTICE_NBACKS = [2, 3, 4],   # practice builds up in this order
+	    PRACTICE_REPS = 2,         # practice probes per n-back level
+	    FONT_SIZE = 32,
+	    TIMING_MARGIN_MS = 8,      # show the next frame slightly early to catch the right refresh
+	    RECALIBRATE_EACH_BLOCK = False,  # True: run the EyeLink calibration again before every block
+	)
+	
+	LEX = {'HF': 'word', 'LF': 'word', 'Pseudo': 'nonword', 'Random': 'nonword'}
+	DIFF = {'HF': 'easy', 'Random': 'easy', 'LF': 'hard', 'Pseudo': 'hard'}
+	CONDS_OF = {'word': ['HF', 'LF'], 'nonword': ['Pseudo', 'Random']}
+	COND_BY = {('easy', 'word'): 'HF', ('easy', 'nonword'): 'Random',
+	           ('hard', 'word'): 'LF', ('hard', 'nonword'): 'Pseudo'}
+	ORDINAL = {1: 'laatste', 2: 'voorlaatste', 3: 'op twee na laatste', 4: 'op drie na laatste'}
+	
+	# Small Dutch practice pool (check these with a native speaker / SUBTLEX-NL)
+	_PRACTICE_WORDS = {
+	    'HF': ['huis', 'water', 'jaar', 'kind', 'tijd', 'groot', 'weten', 'school', 'vriend', 'straat'],
+	    'LF': ['kroniek', 'pelikaan', 'brokaat', 'lantaarn', 'zeepsop', 'kobalt', 'pantoffel', 'kolibrie', 'kaketoe', 'bokaal'],
+	    'Pseudo': ['blaaf', 'krijmen', 'droelt', 'spleem', 'gruim', 'tarmeel', 'voksel', 'bleuken', 'dwierk', 'plokte'],
+	    'Random': ['tzbkrl', 'vwgmdp', 'hsnqfx', 'kxprwb', 'ljzdvt', 'qbfgnc', 'zrkmtw', 'pxhvdg', 'wqtnlb', 'fjgcsz'],
+	}
+	PRACTICE_ITEMS = dict((c, [dict(stimulus=s, cond=c) for s in ws]) for c, ws in _PRACTICE_WORDS.items())
+	
+	LOG_DEFAULTS = dict(
+	    phase='NA', row_type='NA', trial_nr='NA', stream_pos='NA', stream_len='NA',
+	    n_back='NA', target_pos='NA', stimulus='NA', cond='NA', lexical='NA',
+	    difficulty='NA', is_target='NA', onset_ms='NA', probe_onset_ms='NA',
+	    correct_response='NA', response='NA', correct='NA', rt_ms='NA',
+	    stream_words='NA', stim_file='NA',
+	)
+	
+	
+	def et_event(msg):
+	    # Sends a time-stamped message to the EyeLink data file (EDF).
+	    # 'eyetracker' is created by the pygaze_init item; without it (e.g. testing) nothing happens.
+	    try:
+	        eyetracker.log(msg)
+	    except NameError:
+	        pass
+	
+	
+	def wait_until(t):
+	    w = t - CFG['TIMING_MARGIN_MS'] - clock.time()
+	    if w > 0:
+	        clock.sleep(int(w))
+	
+	
+	def max_run(seq):
+	    best, cur = 1, 1
+	    for a, b in zip(seq, seq[1:]):
+	        cur = cur + 1 if a == b else 1
+	        best = max(best, cur)
+	    return best
+	
+	
+	def write_row(**kw):
+	    row = dict(LOG_DEFAULTS)
+	    row.update(kw)
+	    for k, v in row.items():
+	        var.set(k, v)
+	    exp.items.execute('logger')
+	
+	
+	# ---------------------------------------------------------------- plans
+	def _order_ok(block):
+	    for key in ('n_back', 'difficulty'):
+	        if max_run([p[key] for p in block]) > 2:
+	            return False
+	    return True
+	
+	
+	def make_experimental_plan():
+	    # Every block contains the full design: n-back x difficulty x N_REPS probes,
+	    # with N_REPS = 2 giving one word and one non-word target per cell.
+	    plan = []
+	    for block in range(CFG['N_BLOCKS']):
+	        probes = []
+	        for n in CFG['N_BACKS']:
+	            for d in ('easy', 'hard'):
+	                offset = random.randint(0, 1)
+	                for r in range(CFG['N_REPS']):
+	                    lex = 'word' if (r + offset) % 2 == 0 else 'nonword'
+	                    probes.append(dict(n_back=n, difficulty=d, lexical=lex))
+	        for _ in range(5000):
+	            random.shuffle(probes)
+	            if _order_ok(probes):
+	                break
+	        plan.append(probes)
+	    return plan
+	
+	
+	def make_practice_plan():
+	    # Build-up: all probes of the first level, then the next level, etc.
+	    # Within a level: alternating word / non-word target, random difficulty.
+	    plan = []
+	    for n in CFG['PRACTICE_NBACKS']:
+	        offset = random.randint(0, 1)
+	        for r in range(CFG['PRACTICE_REPS']):
+	            lex = 'word' if (r + offset) % 2 == 0 else 'nonword'
+	            plan.append(dict(n_back=n, difficulty=random.choice(['easy', 'hard']), lexical=lex))
+	    return plan
+	
+	
+	# ---------------------------------------------------------------- stimuli
+	def load_pools(block):
+	    try:
+	        base = var.experiment_path
+	    except Exception:
+	        base = os.getcwd()
+	    tried = []
+	    path = None
+	    for subj in (var.subject_nr, 1):
+	        p = os.path.join(base, 'Material', 'stims_LD%s_block%s.csv' % (subj, block))
+	        tried.append(p)
+	        if os.path.isfile(p):
+	            path = p
+	            if subj != var.subject_nr:
+	                print('WAARSCHUWING: stimulusbestand voor deelnemer %s ontbreekt, %s gebruikt' % (var.subject_nr, p))
+	            break
+	    if path is None:
+	        raise Exception('Kan het stimulusbestand niet vinden:\n' + '\n'.join(tried) +
+	                        '\n\nDe map Material moet naast het .osexp-bestand staan.')
+	    with io.open(path, 'r', newline='', encoding='utf-8') as f:
+	        rows = [dict(r) for r in csv.DictReader(f)]
+	    master = dict((c, []) for c in LEX)
+	    seen = set()
+	    for r in rows:
+	        if r['cond'] in LEX and r['stimulus'] not in seen:
+	            seen.add(r['stimulus'])
+	            master[r['cond']].append(r)
+	    pools = dict((c, random.sample(rs, len(rs))) for c, rs in master.items())
+	    return pools, master, os.path.basename(path)
+	
+	
+	def draw_item(pools, master, cond, used):
+	    for attempt in range(2):
+	        pool = pools[cond]
+	        while pool:
+	            r = pool.pop()
+	            if r['stimulus'] not in used:
+	                return r
+	        print('WAARSCHUWING: pool %s leeg, items worden hergebruikt' % cond)
+	        pool.extend(random.sample(master[cond], len(master[cond])))
+	    raise Exception('Geen stimuli meer beschikbaar voor conditie %s' % cond)
+	
+	
+	def build_stream(target_cond, n, pools, master):
+	    L = random.randint(CFG['STREAM_MIN'], CFG['STREAM_MAX'])
+	    tpos = L - n                      # 0-based index of the probed word
+	    tlex = LEX[target_cond]
+	    lex_seq = None
+	    for _ in range(10000):
+	        lex_seq = [random.choice(['word', 'nonword']) for _ in range(L)]
+	        lex_seq[tpos] = tlex
+	        if max_run(lex_seq) <= CFG['MAX_RUN']:
+	            break
+	    stream, used = [], set()
+	    for i in range(L):
+	        cond = target_cond if i == tpos else random.choice(CONDS_OF[lex_seq[i]])
+	        r = draw_item(pools, master, cond, used)
+	        used.add(r['stimulus'])
+	        stream.append(dict(stimulus=r['stimulus'], cond=cond, lexical=LEX[cond],
+	                           difficulty=DIFF[cond], is_target=int(i == tpos)))
+	    return stream, tpos
+	
+	
+	# ---------------------------------------------------------------- canvases
+	def word_canvas(text):
+	    c = Canvas(exp)
+	    c.font_family = 'mono'
+	    c.font_size = CFG['FONT_SIZE']
+	    c.text(text, center=True, x=0, y=0)
+	    return c
+	
+	
+	def fixation_canvas():
+	    c = Canvas(exp)
+	    c.fixdot()
+	    return c
+	
+	
+	def probe_canvas(n):
+	    c = Canvas(exp)
+	    c.font_family = 'mono'
+	    c.font_size = 28
+	    c.text('Was het %s woord<br />een echt woord of een nep-woord?<br /><br />n = echt woord &nbsp;&nbsp;&nbsp; m = nep-woord'
+	           % ORDINAL[n], center=True, x=0, y=0, html=True)
+	    return c
+	
+	
+	def message_canvas(text, size=28):
+	    c = Canvas(exp)
+	    c.font_family = 'mono'
+	    c.font_size = size
+	    c.text(text, center=True, x=0, y=0, html=True)
+	    return c
+	
+	
+	# ---------------------------------------------------------------- one trial
+	def run_trial(item, pools, master, phase, block, first, give_feedback, stim_file='practice'):
+	    exp.trial_counter += 1
+	    trial_nr = exp.trial_counter
+	    n = item['n_back']
+	    target_cond = COND_BY[(item['difficulty'], item['lexical'])]
+	    stream, tpos = build_stream(target_cond, n, pools, master)
+	    correct_response = 'n' if LEX[target_cond] == 'word' else 'm'
+	    L = len(stream)
+	    words_str = ' '.join(w['stimulus'] for w in stream)
+	
+	    # Build everything before the clock starts
+	    word_cvs = [word_canvas(w['stimulus']) for w in stream]
+	    fix = fixation_canvas()
+	    probe = probe_canvas(n)
+	    blank = Canvas(exp)
+	    kb = Keyboard(exp, keylist=['n', 'm'], timeout=CFG['PROBE_MS'])
+	
+	    if not first and CFG['INTERSTREAM_FIX_MS'] > 0:
+	        fix.show()
+	        clock.sleep(CFG['INTERSTREAM_FIX_MS'])
+	
+	    et_event('STREAM_START phase=%s block=%s trial=%s n_back=%s' % (phase, block, trial_nr, n))
+	    # All onsets are anchored to the first word, so timing errors cannot add up over the stream
+	    step = CFG['WORD_MS'] + CFG['WORD_ISI_MS']
+	    onsets, t0 = [], None
+	    for i, w in enumerate(stream):
+	        if t0 is not None:
+	            wait_until(t0 + i * step)
+	        t = word_cvs[i].show()
+	        if t0 is None:
+	            t0 = t
+	        onsets.append(t)
+	        et_event('WORD_ONSET trial=%s pos=%s stim=%s cond=%s target=%s' %
+	                 (trial_nr, i + 1, w['stimulus'], w['cond'], w['is_target']))
+	        if CFG['WORD_ISI_MS'] > 0 and i < L - 1:
+	            wait_until(t0 + i * step + CFG['WORD_MS'])
+	            fix.show()
+	    t_probe_due = t0 + (L - 1) * step + CFG['WORD_MS']
+	
+	    kb.flush()
+	    wait_until(t_probe_due)
+	    t_probe = probe.show()
+	    et_event('PROBE_ONSET trial=%s n_back=%s target_cond=%s' % (trial_nr, n, target_cond))
+	    resp, t_resp = kb.get_key()
+	    if resp is None:
+	        response, rt, correct = 'None', 'NA', 0
+	    else:
+	        response, rt = str(resp).lower(), t_resp - t_probe
+	        correct = int(response == correct_response)
+	    et_event('RESPONSE trial=%s key=%s correct=%s rt=%s' % (trial_nr, response, correct, rt))
+	
+	    if give_feedback:
+	        txt = 'Goed!' if correct else ('Te langzaam!' if response == 'None' else 'Fout')
+	        message_canvas(txt, 32).show()
+	        clock.sleep(CFG['FEEDBACK_MS'])
+	    else:
+	        blank.show()
+	
+	    # Log afterwards, so writing to disk cannot disturb the 3 s timing
+	    common = dict(phase=phase, trial_nr=trial_nr, stream_len=L, n_back=n,
+	                  target_pos=tpos + 1, stim_file=stim_file)
+	    for i, w in enumerate(stream):
+	        write_row(row_type='word', stream_pos=i + 1, stimulus=w['stimulus'], cond=w['cond'],
+	                  lexical=w['lexical'], difficulty=w['difficulty'], is_target=w['is_target'],
+	                  onset_ms=onsets[i], **common)
+	    tw = stream[tpos]
+	    write_row(row_type='probe', stream_pos=tpos + 1, stimulus=tw['stimulus'], cond=tw['cond'],
+	              lexical=tw['lexical'], difficulty=tw['difficulty'], is_target=1,
+	              onset_ms=onsets[tpos], probe_onset_ms=t_probe, correct_response=correct_response,
+	              response=response, correct=correct, rt_ms=rt, stream_words=words_str, **common)
+	
+	
+	def run_practice():
+	    for i, item in enumerate(exp.practice_plan):
+	        pools = dict((c, random.sample(rs, len(rs))) for c, rs in PRACTICE_ITEMS.items())
+	        run_trial(item, pools, PRACTICE_ITEMS, 'practice', 0, i == 0, True)
+	
+	
+	def run_block(block):
+	    pools, master, fname = load_pools(block)
+	    for i, item in enumerate(exp.block_plan[block - 1]):
+	        run_trial(item, pools, master, 'experimental', block, i == 0, False, fname)
+	
+	
+	exp.trial_counter = 0
+	exp.practice_plan = make_practice_plan()
+	exp.block_plan = make_experimental_plan()
+	var.block = 0
+	__end__
+	set _prepare ""
+
+define inline_script practice_run
+	set description "Runs the practice probes"
+	___run__
+	run_practice()
+	__end__
+	set _prepare ""
+
+define inline_script block_run
+	set description "Runs all probes of the current block"
+	___run__
+	run_block(var.block)
+	__end__
+	set _prepare ""
+
+define inline_script new_block
+	set description "Executes Python code"
+	set _run ""
+	set _prepare "var.block = var.block + 1"
+
+define pygaze_init pygaze_init
+	set tracker_type EyeLink
+	set tobiiglasses_udpport 49152
+	set tobiiglasses_address "192.168.71.50"
+	set smi_send_port 4444
+	set smi_recv_port 5555
+	set smi_ip "127.0.0.1"
+	set sacc_vel_thr 35
+	set sacc_acc_thr 9501
+	set eyelink_pupil_size_mode diameter
+	set eyelink_force_drift_correct no
+	set description "Initialize and calibrate eye tracker"
+	set calibrate yes
+	set calbeep yes
+	set alea_api_key "Contact Alea for an API key"
+	set alea_animated_calibration no
+	set _logfile demotest2
+
+define inline_script set_file_name
+	set description "Sets the EDF file name (taken from the eye-tracking demo)"
+	___run__
+	# Name the EDF file on the EyeLink host PC after the participant (max. 8 characters + .EDF)
+	if hasattr(eyetracker, 'send_command'):
+	    eyetracker.send_command(f"open_data_file mCCS{var.subject_nr}.EDF")
+	__end__
+	set _prepare ""
+
+define pygaze_start_recording start_recording_practice
+	set status_msg start_practice
+	set description "Puts the eye tracker into recording mode"
+
+define pygaze_stop_recording stop_recording_practice
+	set status_msg stop_practice
+	set description "Stops recording of eye tracking data"
+
+define pygaze_start_recording start_recording_block
+	set status_msg start_block
+	set description "Puts the eye tracker into recording mode"
+
+define pygaze_stop_recording stop_recording_block
+	set status_msg stop_block
+	set description "Stops recording of eye tracking data"
+
+define inline_script et_calibration
+	set description "Optional re-calibration before each block"
+	___run__
+	# Optional EyeLink re-calibration before a block (see RECALIBRATE_EACH_BLOCK in generalpreps)
+	if CFG['RECALIBRATE_EACH_BLOCK']:
+	    eyetracker.calibrate()
+	__end__
+	set _prepare ""
+
+define inline_script et_msg_fixation
+	set description "Marks the start of the 3 s baseline fixation in the EDF file"
+	___run__
+	et_event('BASELINE_FIXATION block=%s' % var.block)
+	__end__
+	set _prepare ""
+
+define inline_script et_msg_practice
+	set description "Marks the start of the practice in the EDF file"
+	___run__
+	et_event('PRACTICE_START')
+	__end__
+	set _prepare ""
+
+define inline_script stop_recording
+	set description "Closes the eye tracker and transfers the EDF file"
+	___run__
+	eyetracker.close()
+	__end__
+	set _prepare ""
+
+define sketchpad main_instructions
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Welkom!<br /><br />In dit experiment zie je steeds een reeks woorden, een voor een in het midden van het scherm.<br />Elk woord blijft 3 seconden staan. Sommige woorden zijn echte Nederlandse woorden (stoel),<br />andere zijn nep-woorden (estol).<br /><br />Na een aantal woorden krijg je een vraag over een van de laatste woorden, bijvoorbeeld:<br />'Was het voorlaatste woord een echt woord of een nep-woord?'<br /><br />Was het woord echt, druk dan op de 'n'. Was het een nep-woord, druk dan op de 'm'.<br />Je hebt 5 seconden om te antwoorden. Gebruik voor beide toetsen je rechterhand.<br /><br />Probeer zo min mogelijk fouten te maken. Kijk de hele tijd naar het midden van het scherm<br />en probeer je hoofd stil te houden.<br /><br />Druk op een toets om verder te gaan." x=0 y=0 z_index=0
+
+define sketchpad practice_intro
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Eerst een korte oefensessie, met feedback.<br /><br />De vragen gaan over het voorlaatste woord (het woord voor het laatste),<br />het op twee na laatste woord en het op drie na laatste woord.<br />Ze worden stap voor stap moeilijker.<br /><br />'n' = echt woord, 'm' = nep-woord.<br /><br />Druk op een toets om te beginnen." x=0 y=0 z_index=0
+
+define sketchpad practice_end
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Dat was de oefensessie.<br /><br />In het echte experiment krijg je geen feedback meer<br />en komen de drie soorten vragen door elkaar voor.<br /><br />Druk op een toets om door te gaan." x=0 y=0 z_index=0
+
+define sketchpad block_start
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Nu begint blok [block] van 3.<br /><br />Kijk naar het midden van het scherm.<br />'n' = echt woord, 'm' = nep-woord (rechterhand).<br /><br />Druk op een toets om te beginnen." x=0 y=0 z_index=0
+
+define sketchpad block_fixation
+	set duration 3000
+	set description "Displays stimuli"
+	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
+
+define sketchpad end_of_experiment
+	set duration keypress
+	set description "Displays stimuli"
+	draw textline center=1 color=black font_bold=no font_family=mono font_italic=no font_size=22 html=yes show_if=always text="Dat was alles!<br /><br />Hartelijk dank voor het meedoen!" x=0 y=0 z_index=0
+
+define logger logger
+	set description "Logs experimental data"
+	set auto_log no
+	log subject_nr
+	log block
+	log phase
+	log row_type
+	log trial_nr
+	log stream_pos
+	log stream_len
+	log n_back
+	log target_pos
+	log stimulus
+	log cond
+	log lexical
+	log difficulty
+	log is_target
+	log onset_ms
+	log probe_onset_ms
+	log correct_response
+	log response
+	log correct
+	log rt_ms
+	log stream_words
+	log stim_file
+

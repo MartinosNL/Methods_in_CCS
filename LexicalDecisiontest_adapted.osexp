@@ -107,6 +107,7 @@ define sequence experiment
 	run end_of_experiment always
 
 define loop experimental_block
+	set source_file ""
 	set source table
 	set repeat 1
 	set order sequential
@@ -115,6 +116,141 @@ define loop experimental_block
 	set continuous no
 	set break_if_on_first yes
 	set break_if never
+	setcycle 0 empty_column ""
+	setcycle 1 empty_column ""
+	setcycle 2 empty_column ""
+	setcycle 3 empty_column ""
+	setcycle 4 empty_column ""
+	setcycle 5 empty_column ""
+	setcycle 6 empty_column ""
+	setcycle 7 empty_column ""
+	setcycle 8 empty_column ""
+	setcycle 9 empty_column ""
+	setcycle 10 empty_column ""
+	setcycle 11 empty_column ""
+	setcycle 12 empty_column ""
+	setcycle 13 empty_column ""
+	setcycle 14 empty_column ""
+	setcycle 15 empty_column ""
+	setcycle 16 empty_column ""
+	setcycle 17 empty_column ""
+	setcycle 18 empty_column ""
+	setcycle 19 empty_column ""
+	setcycle 20 empty_column ""
+	setcycle 21 empty_column ""
+	setcycle 22 empty_column ""
+	setcycle 23 empty_column ""
+	setcycle 24 empty_column ""
+	setcycle 25 empty_column ""
+	setcycle 26 empty_column ""
+	setcycle 27 empty_column ""
+	setcycle 28 empty_column ""
+	setcycle 29 empty_column ""
+	setcycle 30 empty_column ""
+	setcycle 31 empty_column ""
+	setcycle 32 empty_column ""
+	setcycle 33 empty_column ""
+	setcycle 34 empty_column ""
+	setcycle 35 empty_column ""
+	setcycle 36 empty_column ""
+	setcycle 37 empty_column ""
+	setcycle 38 empty_column ""
+	setcycle 39 empty_column ""
+	setcycle 40 empty_column ""
+	setcycle 41 empty_column ""
+	setcycle 42 empty_column ""
+	setcycle 43 empty_column ""
+	setcycle 44 empty_column ""
+	setcycle 45 empty_column ""
+	setcycle 46 empty_column ""
+	setcycle 47 empty_column ""
+	setcycle 48 empty_column ""
+	setcycle 49 empty_column ""
+	setcycle 50 empty_column ""
+	setcycle 51 empty_column ""
+	setcycle 52 empty_column ""
+	setcycle 53 empty_column ""
+	setcycle 54 empty_column ""
+	setcycle 55 empty_column ""
+	setcycle 56 empty_column ""
+	setcycle 57 empty_column ""
+	setcycle 58 empty_column ""
+	setcycle 59 empty_column ""
+	setcycle 60 empty_column ""
+	setcycle 61 empty_column ""
+	setcycle 62 empty_column ""
+	setcycle 63 empty_column ""
+	setcycle 64 empty_column ""
+	setcycle 65 empty_column ""
+	setcycle 66 empty_column ""
+	setcycle 67 empty_column ""
+	setcycle 68 empty_column ""
+	setcycle 69 empty_column ""
+	setcycle 70 empty_column ""
+	setcycle 71 empty_column ""
+	setcycle 72 empty_column ""
+	setcycle 73 empty_column ""
+	setcycle 74 empty_column ""
+	setcycle 75 empty_column ""
+	setcycle 76 empty_column ""
+	setcycle 77 empty_column ""
+	setcycle 78 empty_column ""
+	setcycle 79 empty_column ""
+	setcycle 80 empty_column ""
+	setcycle 81 empty_column ""
+	setcycle 82 empty_column ""
+	setcycle 83 empty_column ""
+	setcycle 84 empty_column ""
+	setcycle 85 empty_column ""
+	setcycle 86 empty_column ""
+	setcycle 87 empty_column ""
+	setcycle 88 empty_column ""
+	setcycle 89 empty_column ""
+	setcycle 90 empty_column ""
+	setcycle 91 empty_column ""
+	setcycle 92 empty_column ""
+	setcycle 93 empty_column ""
+	setcycle 94 empty_column ""
+	setcycle 95 empty_column ""
+	setcycle 96 empty_column ""
+	setcycle 97 empty_column ""
+	setcycle 98 empty_column ""
+	setcycle 99 empty_column ""
+	setcycle 100 empty_column ""
+	setcycle 101 empty_column ""
+	setcycle 102 empty_column ""
+	setcycle 103 empty_column ""
+	setcycle 104 empty_column ""
+	setcycle 105 empty_column ""
+	setcycle 106 empty_column ""
+	setcycle 107 empty_column ""
+	setcycle 108 empty_column ""
+	setcycle 109 empty_column ""
+	setcycle 110 empty_column ""
+	setcycle 111 empty_column ""
+	setcycle 112 empty_column ""
+	setcycle 113 empty_column ""
+	setcycle 114 empty_column ""
+	setcycle 115 empty_column ""
+	setcycle 116 empty_column ""
+	setcycle 117 empty_column ""
+	setcycle 118 empty_column ""
+	setcycle 119 empty_column ""
+	setcycle 120 empty_column ""
+	setcycle 121 empty_column ""
+	setcycle 122 empty_column ""
+	setcycle 123 empty_column ""
+	setcycle 124 empty_column ""
+	setcycle 125 empty_column ""
+	setcycle 126 empty_column ""
+	setcycle 127 empty_column ""
+	setcycle 128 empty_column ""
+	setcycle 129 empty_column ""
+	setcycle 130 empty_column ""
+	setcycle 131 empty_column ""
+	setcycle 132 empty_column ""
+	setcycle 133 empty_column ""
+	setcycle 134 empty_column ""
 	run trial_sequence
 
 define sequence experimental_sequence
@@ -135,16 +271,6 @@ define feedback feedback
 	set description "Provides feedback to the participant"
 	draw textline center=1 color=red font_bold=yes font_family=mono font_italic=no font_size=20 html=yes show_if=always text=Incorrect x=0 y=0 z_index=0
 
-define sketchpad fixation
-	set duration "[fixation_dur]"
-	set description "Displays stimuli"
-	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
-
-define sketchpad fixation_1
-	set duration 0
-	set description "Displays stimuli"
-	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
-
 define inline_script feedback_trigger
 	set description "Executes Python code"
 	___run__
@@ -157,6 +283,16 @@ define inline_script feedback_trigger
 	    exp.items.execute("feedback")
 	__end__
 	set _prepare ""
+
+define sketchpad fixation
+	set duration "[fixation_dur]"
+	set description "Displays stimuli"
+	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
+
+define sketchpad fixation_1
+	set duration 0
+	set description "Displays stimuli"
+	draw fixdot color=black show_if=always style=default x=0 y=0 z_index=0
 
 define inline_script fixation_duration
 	set description "Executes Python code"
